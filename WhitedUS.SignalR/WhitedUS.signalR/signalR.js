@@ -1,4 +1,4 @@
-﻿//# signalr-client
+//# signalr-client
 //By: [Matthew Whited](mailto:matt@whited.us?subject=signalr-client)  (c) 2016
 // v0.0.17
 
@@ -11,9 +11,11 @@
 
 var url = require('url'),
     querystring = require('querystring'),
-    http = require('http'),
-    https = require('https'),
-    WebSocketClient = require('websocket').client; // https://github.com/Worlize/WebSocket-Node
+    http = require('http');
+//https = require('https'),
+//WebSocketClient = require('websocket').client; // https://github.com/Worlize/WebSocket-Node
+var WebSocketClient = require('nativescript-websockets');
+var timer = require("timer");
 
 var states = {
     connection: {
@@ -33,7 +35,7 @@ var states = {
         for (value in states.connection) {
             if (states.connection[value] == code)
                 return value;
-        }        ;
+        };
         return undefined;
     }
 };
@@ -76,8 +78,8 @@ function mergeFrom(target, source) {
 }
 
 function negotiateProxies(baseUrl, hubNames, onSuccess, onError, _client) {
-
     var cleanedHubs = toCleanHubNames(hubNames);
+
     if (!cleanedHubs || cleanedHubs.length < 1) {
         onError('you must define at least one hub name and they must be typeof string');
         return;
@@ -91,43 +93,49 @@ function negotiateProxies(baseUrl, hubNames, onSuccess, onError, _client) {
     var negotiateUrlOptions = url.parse(negotiateUrl, true);
 
     var negotiateFunction = function (res) {
-        res.on('data', function (chunk) {
-            negotiateData += chunk;
-        });
-        res.on('end', function (endRes) {
-            try {
-                if (res.statusCode == 200) {
-                    var negotiateObj = JSON.parse(negotiateData);
-                    negotiateObj.Hubs = cleanedHubs;
-                    onSuccess(negotiateObj);
-                } else if (res.statusCode == 401 || res.statusCode == 302) {
-                    if (_client.serviceHandlers.onUnauthorized) {
-                        _client.serviceHandlers.onUnauthorized(res);
-                    } else {
-                        onError('Negotiate Unauthorized', undefined, res.statusCode);
-                    }
+
+        // res.on('data', function (chunk) {
+        //     negotiateData += chunk;
+        // });
+        // res.on('end', function (endRes) {
+        try {
+
+            if (res.statusCode == 200) {
+
+                //var negotiateObj = JSON.parse(negotiateData);
+                var negotiateObj = res.content.toJSON();
+                negotiateObj.Hubs = cleanedHubs;
+
+                onSuccess(negotiateObj);
+            } else if (res.statusCode == 401 || res.statusCode == 302) {
+                if (_client.serviceHandlers.onUnauthorized) {
+                    _client.serviceHandlers.onUnauthorized(res);
                 } else {
-                    onError('Negotiate Unknown', undefined, res.statusCode);
+                    onError('Negotiate Unauthorized', undefined, res.statusCode);
                 }
-            } catch (e) {
-                onError('Parse Error', e, negotiateData);
-            }
-        });
-        res.on('error', function (e) {
-            _client.connection.state = states.connection.bindingError;
-            if (_client.serviceHandlers.bindingError) {
-                _client.serviceHandlers.bindingError(e);
             } else {
-                onError('HTTP Error', e);
+                onError('Negotiate Unknown', undefined, res.statusCode);
             }
-        });
+        } catch (e) {
+            onError('Parse Error', e, negotiateData);
+        }
+        // });
+        // res.on('error', function (e) {
+        //     _client.connection.state = states.connection.bindingError;
+        //     if (_client.serviceHandlers.bindingError) {
+        //         _client.serviceHandlers.bindingError(e);
+        //     } else {
+        //         onError('HTTP Error', e);
+        //     }
+        // });
     };
     var negotiateErrorFunction = function (e) {
+        console.log('error!');
         _client.connection.state = states.connection.bindingError;
         if (_client.serviceHandlers.bindingError) {
             _client.serviceHandlers.bindingError(e);
         } else {
-            onError('HTTP Negotiate Error', e);
+            onError('HTTP Error', e);
         }
     };
 
@@ -148,13 +156,19 @@ function negotiateProxies(baseUrl, hubNames, onSuccess, onError, _client) {
     }
 
     if (negotiateUrlOptions.protocol === 'http:') {
-        var negotiateResult = http.get(negotiateUrlOptions, negotiateFunction).on('error', negotiateErrorFunction);
+        //var negotiateResult = http.get(negotiateUrlOptions, negotiateFunction).on('error', negotiateErrorFunction);
     } else if (negotiateUrlOptions.protocol === 'wss:') {
         negotiateUrlOptions.protocol = 'https:';
-        var negotiateResult = https.get(negotiateUrlOptions, negotiateFunction).on('error', negotiateErrorFunction);
+        //var negotiateResult = https.get(negotiateUrlOptions, negotiateFunction).on('error', negotiateErrorFunction);
     } else {
         onError('Protocol Error', undefined, negotiateUrlOptions);
     }
+
+    http.request({
+        url: url.format(negotiateUrlOptions),
+        method: "GET",
+        //headers: negotiateUrlOptions.headers
+    }).then(negotiateFunction, negotiateErrorFunction);
 }
 
 function getBindings(baseUrl, hubNames, onSuccess, onError, _client) {
@@ -174,7 +188,6 @@ function getBindings(baseUrl, hubNames, onSuccess, onError, _client) {
         //negotiatedOptions.KeepAliveTimeout	    20	                Number
         //negotiatedOptions.DisconnectTimeout	    30	                Number
         //negotiatedOptions.TransportConnectTimeout	5	                Number
-
         onSuccess({
             url: baseUrl,
             connection: {
@@ -208,7 +221,10 @@ function getConnectQueryString(_client) {
         }
     }
 
-    var connectQueryString = _client.url + "/connect?" + querystring.stringify(qs);
+    console.log(querystring.stringify(qs));
+
+    var connectQueryString = _client.url + "/connect?" + querystring.stringify(qs)
+        .replace(/%2B/g, '%252B');//Some lame ass web sockets bug. Not sure if it is android specific
     return connectQueryString;
 }
 
@@ -325,7 +341,7 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
 
         // https://github.com/Worlize/WebSocket-Node
         websocket: {
-            client: new WebSocketClient(),
+            //client: new WebSocketClient(),
             connection: null,
             messageid: 0,
             reconnectTimeout: reconnectTimeout || 10,
@@ -401,41 +417,41 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
         return hub.invoke.apply(hub, args);
     };
 
-	var callTimeout = 30000;
-	var callCallbacks = {};
+    var callTimeout = 30000;
+    var callCallbacks = {};
 
     client.__defineGetter__('callTimeout', function () { return callTimeout; });
     client.__defineSetter__('callTimeout', function (val) { callTimeout = val; });
 
     client.call = function (hubName, methodName) {
-		var nohub = typeof client.invoke.apply(client, arguments) === 'undefined';
-		return {
-			done: function (cb, timeout) { // cb(err, result)
-				if (nohub) {
-					cb('No Hub');
-					return;
-				}
-				var messageId = client.lastMessageId;
-				var timeoutId = setTimeout(
-					function () {
-						delete callCallbacks[messageId];
-						cb('Timeout');
-					},
-					timeout || callTimeout
-				);
-				callCallbacks[messageId] = function (err, result) {
-					clearTimeout(timeoutId);
-					delete callCallbacks[messageId];
-					cb(err, result);
-				};
-			}
-		};
+        var nohub = typeof client.invoke.apply(client, arguments) === 'undefined';
+        return {
+            done: function (cb, timeout) { // cb(err, result)
+                if (nohub) {
+                    cb('No Hub');
+                    return;
+                }
+                var messageId = client.lastMessageId;
+                var timeoutId = setTimeout(
+                    function () {
+                        delete callCallbacks[messageId];
+                        cb('Timeout');
+                    },
+                    timeout || callTimeout
+                );
+                callCallbacks[messageId] = function (err, result) {
+                    clearTimeout(timeoutId);
+                    delete callCallbacks[messageId];
+                    cb(err, result);
+                };
+            }
+        };
     };
-	function handleCallResult(messageId, err, result) {
-		var cb = callCallbacks[messageId];
-		if (cb) cb(err, result);
-	}
-	
+    function handleCallResult(messageId, err, result) {
+        var cb = callCallbacks[messageId];
+        if (cb) cb(err, result);
+    }
+
     client.start = function () {
         _client.getBinding();
     };
@@ -453,7 +469,7 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
         if (_client.websocket.connection) {
             _client.websocket.connection.send(payload);
         } else {
-            setImmediate(sendPayload, payload);
+            timer.setTimeout(function () { sendPayload(payload); });
         }
     }
     function scheduleReconnection(isInitalRetry) {
@@ -472,7 +488,9 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
             if (!cancelRetry) {
                 setTimeout(function () {
                     var connectQueryString = getConnectQueryString(_client);
-                    _client.websocket.client.connect(connectQueryString, undefined, undefined, _client.headers);
+                    createWebsocketClient(connectQueryString, { headers: _client.headers });
+                    //_client.websocket.client = new WebSocketClient(connectQueryString, { headers: _client.headers })
+                    //_client.websocket.client.connect(connectQueryString, undefined, undefined, _client.headers);
                 }, 1000 * _client.websocket.reconnectTimeout);
                 return true;
             }
@@ -491,13 +509,11 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
 
             var abortUrlOptions = url.parse(abortQueryString, true);
             var requestObject = undefined;
-
-
             if (abortUrlOptions.protocol === 'http:') {
-                requestObject = http;
+                //requestObject = http;
             } else if (abortUrlOptions.protocol === 'wss:') {
                 abortUrlOptions.protocol = 'https:';
-                requestObject = https;
+                //requestObject = https;
             } else {
                 handlerErrors('Protocol Error', undefined, abortUrlOptions);
             }
@@ -509,28 +525,37 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
                 path: abortUrlOptions.path
             };
 
-            var req = requestObject.request(abortUrlOptions,
-            function (res) {
-
-                //console.log('STATUS: ' + res.statusCode);
-                //console.log('HEADERS: ' + JSON.stringify(res.headers));
-
-                res.on('data', function (chunk) {
-                    //str += chunk;
-                });
-
-                res.on('end', function () {
-                    console.log('Connection aborted');
-
-                });
-
-            });
-
-            req.on('error', function (e) {
+            http.request({
+                url: url.format(abortUrlOptions),
+                method: 'POST'
+            }).then(function (res) {
+                console.log('Connection aborted');
+            }, function (e) {
                 handlerErrors('Can\'t abort connection', e, abortUrlOptions);
-            });
+            })
 
-            req.end();
+            // var req = requestObject.request(abortUrlOptions,
+            //     function (res) {
+
+            //         //console.log('STATUS: ' + res.statusCode);
+            //         //console.log('HEADERS: ' + JSON.stringify(res.headers));
+
+            //         res.on('data', function (chunk) {
+            //             //str += chunk;
+            //         });
+
+            //         res.on('end', function () {
+            //             console.log('Connection aborted');
+
+            //         });
+
+            //     });
+
+            // req.on('error', function (e) {
+            //     handlerErrors('Can\'t abort connection', e, abortUrlOptions);
+            // });
+
+            // req.end();
         }
 
     };
@@ -543,35 +568,36 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
 
         var startData = "";
         var startFunction = function (res) {
-            res.on('data', function (chunk) {
-                startData += chunk;
-            });
-            res.on('end', function (endRes) {
-                try {
-                    if (res.statusCode == 200) {
-                        var startObj = JSON.parse(startData);
-                        onSuccess(startObj);
-                    } else if (res.statusCode == 401 || res.statusCode == 302) {
-                        if (_client.serviceHandlers.onUnauthorized) {
-                            _client.serviceHandlers.onUnauthorized(res);
-                        } else {
-                            console.log('start::Unauthorized (' + res.statusCode + ')');
-                        }
+            // res.on('data', function (chunk) {
+            //     startData += chunk;
+            // });
+            // res.on('end', function (endRes) {
+            try {
+                if (res.statusCode == 200) {
+                    //var startObj = JSON.parse(startData);
+                    var startObj = res.content.toJSON();
+                    onSuccess(startObj);
+                } else if (res.statusCode == 401 || res.statusCode == 302) {
+                    if (_client.serviceHandlers.onUnauthorized) {
+                        _client.serviceHandlers.onUnauthorized(res);
                     } else {
-                        console.log('start::unknown (' + res.statusCode + ')');
+                        console.log('start::Unauthorized (' + res.statusCode + ')');
                     }
-                } catch (e) {
-                    onError('Parse Error', e, startData);
-                }
-            });
-            res.on('error', function (e) {
-                _client.connection.state = states.connection.bindingError;
-                if (_client.serviceHandlers.bindingError) {
-                    _client.serviceHandlers.bindingError(e);
                 } else {
-                    onError('HTTP Error', e);
+                    console.log('start::unknown (' + res.statusCode + ')');
                 }
-            });
+            } catch (e) {
+                onError('Parse Error', e, startData);
+            }
+            // });
+            // res.on('error', function (e) {
+            //     _client.connection.state = states.connection.bindingError;
+            //     if (_client.serviceHandlers.bindingError) {
+            //         _client.serviceHandlers.bindingError(e);
+            //     } else {
+            //         onError('HTTP Error', e);
+            //     }
+            // });
         }
 
         var startErrorFunction = function (e) {
@@ -600,18 +626,22 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
         }
 
         if (startUrlOptions.protocol === 'http:') {
-            var startResult = http.get(startUrlOptions, startFunction).on('error', startErrorFunction);
+            //var startResult = http.get(startUrlOptions, startFunction).on('error', startErrorFunction);
         } else if (startUrlOptions.protocol === 'wss:') {
             startUrlOptions.protocol = 'https:';
-            var startResult = https.get(startUrlOptions, startFunction).on('error', startErrorFunction);
+            //var startResult = https.get(startUrlOptions, startFunction).on('error', startErrorFunction);
         } else {
             onError('Protocol Error', undefined, startUrlOptions);
         }
 
-
+        http.request({
+            url: url.format(startUrlOptions),
+            method: 'GET'
+        }).then(startFunction, startErrorFunction)
     };
 
     _client.start = function (tryOnceAgain) {
+
         //connected: 3,
         //retryingConnection: 8,
         //connecting: 2,
@@ -626,7 +656,8 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
             || _client.connection.state == states.connection.unbound) {
             if (!tryOnceAgain) {
                 _client.getBinding();
-                setImmediate(_client.start, true);
+                timer.setTimeout(function () { _client.start(true); })
+                //setImmediate(_client.start, true);
             }
             return false;
         }
@@ -644,81 +675,29 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
 
             //connect to websockets
             var connectQueryString = getConnectQueryString(_client);
-            _client.websocket.client.connect(connectQueryString, undefined, undefined, _client.headers);
+            createWebsocketClient(connectQueryString, { headers: _client.headers });
+            //_client.websocket.client = new WebSocketClient(connectQueryString, { headers: _client.headers })
+            //_client.websocket.client.connect(connectQueryString, undefined, undefined, _client.headers);
             return false;
         }
         return true;
     };
 
-    _client.websocket.client.on('connectFailed', function (error) {
-        if (_client.connection.state == states.connection.retryingConnection
-            && scheduleReconnection(false)) {
-        } else {
-            _client.connection.state = states.connection.connectFailed;
-            if (_client.serviceHandlers.connectFailed) {
-                _client.serviceHandlers.connectFailed.apply(client, [error]);
-            } else {
-                console.log("Connect Failed!");
-            }
-        }
-    });
-    _client.websocket.client.on('connect', function (connection) {
-        _client.websocket.connection = connection;
-        _client.websocket.messageid = 0; //Reset MessageID on new connection
-
-        //Note: check for reconnecting
-        if (_client.connection.state == states.connection.retryingConnection) {
-            //Note: reconnected event
-            if (_client.serviceHandlers.reconnected) {
-                _client.serviceHandlers.reconnected.apply(client, [connection]);
-            } else {
-                console.log("Reconnected!");
-            }
-        } else {
-            if (_client.serviceHandlers.connected) {
-                startCommunication(function (data) {
-
-                    _client.serviceHandlers.connected.apply(client, [connection]);
-                },
-                handlerErrors);
-            } else {
-                console.log("Connected!");
-            }
-        }
-        connection.on('error', function (error) {
-            _client.websocket.connection = undefined;
-            _client.connection.state = states.connection.errorOccured;
-
-            //Note: Add support for automatic retry
-            if (error.code == "ECONNRESET") {
-                _client.connection.state = states.connection.retryingConnection;
-                if (_client.serviceHandlers.connectionLost) {
-                    _client.serviceHandlers.connectionLost.apply(client, [error]);
-                } else {
-                    console.log("Scheduled Reconnection: " + error.toString());
-                }
-                scheduleReconnection(true);
-            } else {
-                if (_client.serviceHandlers.onerror) {
-                    _client.serviceHandlers.onerror.apply(client, [error]);
-                } else {
-                    console.log("Connection Error: " + error.toString());
-                }
-            }
+    function createWebsocketClient(url, options) {
+        //console.log(url);
+        var socket = new WebSocketClient(url, options);
+        socket.on('error', function (socket, error) {
+            console.log("Socket had an error", error);
         });
-        connection.on('close', function () {
-            if (_client.connection.state != states.connection.retryingConnection) {
-                _client.connection.state = states.connection.disconnected;
-            }
-            if (_client.serviceHandlers.disconnected) {
-                _client.serviceHandlers.disconnected.apply(client);
-            }
-            //Abort connection
-            abort();
 
-            _client.websocket.connection = undefined; //Release connection on close
+        socket.on('open', function (socket) {
+            console.log("Hey I'm open");
+            _client.websocket.connection = socket;
+            _client.websocket.messageid = 0; //Reset MessageID on new connection
         });
-        connection.on('message', function (message) {
+
+        socket.on('message', function (socket, message) {
+            console.log("Got a message", message);
             var handled = false;
             if (_client.serviceHandlers.messageReceived) {
                 handled = _client.serviceHandlers.messageReceived.apply(client, [message]);
@@ -744,17 +723,136 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
                             }
                         }
                     }
-					else if (parsed.hasOwnProperty('I')) {
-						handleCallResult(+parsed.I, parsed.E, parsed.R);
-					}
+                    else if (parsed.hasOwnProperty('I')) {
+                        handleCallResult(+parsed.I, parsed.E, parsed.R);
+                    }
                 }
             }
         });
-    });
+
+
+        socket.on('close', function (socket, code, reason) {
+            console.log("Socket was closed because: ", reason, " code: ", code);
+            // if (_client.connection.state != states.connection.retryingConnection) {
+            //     _client.connection.state = states.connection.disconnected;
+            // }
+            // if (_client.serviceHandlers.disconnected) {
+            //     _client.serviceHandlers.disconnected.apply(client);
+            // }
+            // //Abort connection
+            // abort();
+
+            // _client.websocket.connection = undefined; //Release connection on close
+        });
+        socket.open();
+        _client.websocket.client = socket;
+        // _client.websocket.client.on('connectFailed', function (error) {
+        //     if (_client.connection.state == states.connection.retryingConnection
+        //         && scheduleReconnection(false)) {
+        //     } else {
+        //         _client.connection.state = states.connection.connectFailed;
+        //         if (_client.serviceHandlers.connectFailed) {
+        //             _client.serviceHandlers.connectFailed.apply(client, [error]);
+        //         } else {
+        //             console.log("Connect Failed!");
+        //         }
+        //     }
+        // });
+        // _client.websocket.client.on('connect', function (connection) {
+        //     _client.websocket.connection = connection;
+        //     _client.websocket.messageid = 0; //Reset MessageID on new connection
+
+        //     //Note: check for reconnecting
+        //     if (_client.connection.state == states.connection.retryingConnection) {
+        //         //Note: reconnected event
+        //         if (_client.serviceHandlers.reconnected) {
+        //             _client.serviceHandlers.reconnected.apply(client, [connection]);
+        //         } else {
+        //             console.log("Reconnected!");
+        //         }
+        //     } else {
+        //         if (_client.serviceHandlers.connected) {
+        //             startCommunication(function (data) {
+
+        //                 _client.serviceHandlers.connected.apply(client, [connection]);
+        //             },
+        //                 handlerErrors);
+        //         } else {
+        //             console.log("Connected!");
+        //         }
+        //     }
+        //     connection.on('error', function (error) {
+        //         _client.websocket.connection = undefined;
+        //         _client.connection.state = states.connection.errorOccured;
+
+        //         //Note: Add support for automatic retry
+        //         if (error.code == "ECONNRESET") {
+        //             _client.connection.state = states.connection.retryingConnection;
+        //             if (_client.serviceHandlers.connectionLost) {
+        //                 _client.serviceHandlers.connectionLost.apply(client, [error]);
+        //             } else {
+        //                 console.log("Scheduled Reconnection: " + error.toString());
+        //             }
+        //             scheduleReconnection(true);
+        //         } else {
+        //             if (_client.serviceHandlers.onerror) {
+        //                 _client.serviceHandlers.onerror.apply(client, [error]);
+        //             } else {
+        //                 console.log("Connection Error: " + error.toString());
+        //             }
+        //         }
+        //     });
+        //     connection.on('close', function () {
+        //         if (_client.connection.state != states.connection.retryingConnection) {
+        //             _client.connection.state = states.connection.disconnected;
+        //         }
+        //         if (_client.serviceHandlers.disconnected) {
+        //             _client.serviceHandlers.disconnected.apply(client);
+        //         }
+        //         //Abort connection
+        //         abort();
+
+        //         _client.websocket.connection = undefined; //Release connection on close
+        //     });
+        //     connection.on('message', function (message) {
+        //         var handled = false;
+        //         if (_client.serviceHandlers.messageReceived) {
+        //             handled = _client.serviceHandlers.messageReceived.apply(client, [message]);
+        //         }
+        //         if (!handled) {
+        //             //{"C":"d-8F1AB453-B,0|C,0|D,1|E,0","S":1,"M":[]}
+        //             if (message.type === 'utf8' && message.utf8Data != "{}") {
+        //                 var parsed = JSON.parse(message.utf8Data);
+
+        //                 //{"C":"d-74C09D5E-B,1|C,0|D,1|E,0","M":[{"H":"TestHub","M":"addMessage","A":["ie","sgds"]}]}
+        //                 if (parsed.hasOwnProperty('M')) {
+        //                     for (var i = 0; i < parsed.M.length; i++) {
+        //                         var mesg = parsed.M[i];
+        //                         var hubName = mesg.H.toLowerCase();
+        //                         var handler = _client.handlers[hubName];
+        //                         if (handler) {
+        //                             var methodName = mesg.M.toLowerCase();
+        //                             var method = handler[methodName];
+        //                             if (method) {
+        //                                 var hub = client.hub(hubName)
+        //                                 method.apply(hub, mesg.A);
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //                 else if (parsed.hasOwnProperty('I')) {
+        //                     handleCallResult(+parsed.I, parsed.E, parsed.R);
+        //                 }
+        //             }
+        //         }
+        //     });
+        // });
+
+        //_client.websocket.client.open();
+    }
 
     _client.getBinding = function () {
         getBindings(baseUrl, hubs, function (bindings) {
-
             _client.hubData = bindings.hubs;
 
             //hubs:
@@ -778,6 +876,8 @@ function clientInterface(baseUrl, hubs, reconnectTimeout, doNotStart) {
             }
 
             _client.start(true);
+
+
         }, (_client.serviceHandlers.onerror ? client.serviceHandlers.onerror : handlerErrors), _client);
     };
 
